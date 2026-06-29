@@ -61,6 +61,8 @@ def main(argv=None):
     ap.add_argument("--ring", type=int, default=6, choices=[4, 5, 6])
     ap.add_argument("--cap", type=int, default=5, choices=range(1, 6))
     ap.add_argument("--top", type=int, default=3)
+    ap.add_argument("--exact", action="store_true",
+                    help="use the ILP exact solver (global optimum) instead of greedy")
     args = ap.parse_args(argv)
 
     targets = _parse_targets(args.target)
@@ -69,14 +71,22 @@ def main(argv=None):
         if p not in C.STATS:
             sys.exit(f"unknown priority stat {p!r}")
 
-    builds = top_builds(
-        args.hero, args.set_name, targets=targets, priority=priority, n=args.top,
-        transcend=args.transcend, atk_lvl=args.atk_lvl, def_lvl=args.def_lvl,
-        hp_lvl=args.hp_lvl, ring=args.ring, cap=args.cap,
-    )
+    if args.exact:
+        from optimizer_exact import solve_exact
+        builds = [solve_exact(
+            args.hero, args.set_name, targets=targets, priority=priority,
+            transcend=args.transcend, atk_lvl=args.atk_lvl, def_lvl=args.def_lvl,
+            hp_lvl=args.hp_lvl, ring=args.ring, cap=args.cap)]
+    else:
+        builds = top_builds(
+            args.hero, args.set_name, targets=targets, priority=priority, n=args.top,
+            transcend=args.transcend, atk_lvl=args.atk_lvl, def_lvl=args.def_lvl,
+            hp_lvl=args.hp_lvl, ring=args.ring, cap=args.cap,
+        )
 
+    mode = "exact (ILP)" if args.exact else "greedy"
     print(f"Hero: {args.hero} | Set: {args.set_name} (4pc) | "
-          f"T{args.transcend} | Ring {args.ring} | priority {' > '.join(priority)}")
+          f"T{args.transcend} | Ring {args.ring} | priority {' > '.join(priority)} | {mode}")
     if targets:
         print("Targets: " + ", ".join(f"{LABELS.get(k, k)} >= {v}" for k, v in targets.items()))
     for i, r in enumerate(builds, 1):

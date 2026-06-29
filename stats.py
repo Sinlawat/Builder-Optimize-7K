@@ -63,8 +63,8 @@ def _transcend_pct(grade: str, star_main: str, target: str, q2: int) -> float:
 
 # ---------- public API ----------
 
-def compute_stats(build: Build) -> dict[str, int]:
-    """Return the final 11 stats for a build (locked set assumed 4-piece)."""
+def _raw_totals(build: Build) -> dict:
+    """Unfloored stat totals (internal; compute_stats floors these)."""
     hero = get_hero(build.hero)
     q2 = build.transcend
     ring_pct = C.RING_PERCENT[build.ring]
@@ -106,7 +106,12 @@ def compute_stats(build: Build) -> dict[str, int]:
             stat, amt = _contribution(sub_type, value, hero)
             totals[stat] += amt
 
-    return {s: int(floor(totals[s])) for s in C.STATS}
+    return totals
+
+
+def compute_stats(build: Build) -> dict:
+    """Return the final 11 stats for a build (locked set assumed 4-piece)."""
+    return {s: int(floor(v)) for s, v in _raw_totals(build).items()}
 
 
 def validate_build(build: Build) -> list[str]:
