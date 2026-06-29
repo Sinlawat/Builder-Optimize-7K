@@ -58,7 +58,7 @@ def _best_main_for(stat, slot, hero):
 
 
 def solve(hero, set_name, *, targets=None, priority=None, transcend=0,
-          atk_lvl=0, def_lvl=0, hp_lvl=0, ring=6, cap=5):
+          atk_lvl=0, def_lvl=0, hp_lvl=0, ring=6, cap=5, force_cover=None):
     targets = dict(targets or {})
     priority = list(priority or ["ATK"])
     ctx = dict(transcend=transcend, atk_lvl=atk_lvl, def_lvl=def_lvl, hp_lvl=hp_lvl, ring=ring)
@@ -111,14 +111,16 @@ def solve(hero, set_name, *, targets=None, priority=None, transcend=0,
         else:
             deficits[stat] = tgt - base[stat]
 
+    force_cover = dict(force_cover or {})
     # 2. allocate to cover targets (cheapest resources first)
     for stat, deficit in deficits.items():
         got, n_main, n_sub, n_roll = 0.0, 0, 0, 0
-        while got < deficit:
-            v = add_main(stat)
-            if v is None:
-                break
-            got += v; n_main += 1
+        if force_cover.get(stat) != "sub":          # "sub" = skip mains, leave them for objective
+            while got < deficit:
+                v = add_main(stat)
+                if v is None:
+                    break
+                got += v; n_main += 1
         while got < deficit:
             v = add_sub_slot(stat)
             if v is None:
@@ -193,3 +195,47 @@ def solve(hero, set_name, *, targets=None, priority=None, transcend=0,
         reasoning.append(f"{'\u2713' if stats[s] >= t else '\u2717'} \u0e1c\u0e25 {s} = {stats[s]} (\u0e40\u0e1b\u0e49\u0e32 {t})")
     reasoning.append(f"\u2192 objective {' \u2192 '.join(priority)}: {priority[0]} = {stats[priority[0]]}")
     return SolveResult(build, stats, reasoning, met)
+
+
+# ---------- Top-N alternatives ----------
+
+def _has_main(stat, hero):
+    return (_best_main_for(stat, "offense", hero) is not None
+            or _best_main_for(stat, "defense", hero) is not None)
+
+
+def _build_sig(build):
+    """Signature for dedupe: mains + sorted substats per piece."""
+    return tuple((p.slot, p.main, tuple(sorted(p.substats))) for p in build.pieces)
+
+
+def top_builds(hero, set_name, *, targets=None, priority=None, n=3, cap=5, **ctx):
+    """Return up to `n` meaningfully-different builds, ranked by the objective.
+
+    Diversity axis: each target that *could* be covered by a main may instead be
+    covered by substats, freeing different resources -> different objective result.
+    """
+    targets = dict(targets or {})
+    priority = list(priority or ["ATK"])
+    h = get_hero(hero)
+    base = compute_stats(Build(hero, set_name, [], **ctx))
+    flexible = [s for s, t in targets.items() if base[s] < t and _has_main(s, h)]
+
+    import itertools
+    seen, ranked = set(), []
+    for combo in itertools.product(("main", "sub"), repeat=len(flexible)):
+        fc = dict(zip(flexible, combo))
+        r = solve(hero, set_name, targets=targets, priority=priority,
+                  force_cover=fc, cap=cap, **ctx)
+        if targets and not r.targets_met:
+            continue
+        sig = _build_sig(r.build)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        ranked.append(r)
+
+    if not ranked:                       # nothing met targets -> show best effort
+        ranked = [solve(hero, set_name, targets=targets, priority=priority, cap=cap, **ctx)]
+    ranked.sort(key=lambda r: tuple(-r.stats[s] for s in priority))
+    return ranked[:n]
